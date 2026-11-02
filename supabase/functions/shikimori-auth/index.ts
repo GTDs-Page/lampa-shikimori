@@ -12,6 +12,7 @@
 // Secrets (Supabase -> Project Settings -> Edge Functions -> Secrets):
 //   CLIENT_ID, CLIENT_SECRET, SHIKI_BASE (https://shikimori.io)
 //   PUBLIC_BASE (optional, for a custom domain)
+//   RESULT_BASE (optional, static success/error pages; default GitHub Pages)
 // SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are injected by Supabase.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
