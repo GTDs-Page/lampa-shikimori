@@ -59,17 +59,51 @@ function json(status: number, body: unknown): Response {
   });
 }
 
-function html(status: number, text: string): Response {
-  const page = `<!doctype html><html lang="ru"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>Shikimori</title>
-<style>body{background:#15171c;color:#e8eaed;font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;box-sizing:border-box}
-.box{max-width:560px;text-align:center}.ok{color:#2ecc71}.err{color:#ff6b6b}h1{font-size:24px;margin:0 0 12px}p{color:#aab0b8}</style>
-</head><body><div class="box"><h1>Shikimori</h1><p>${text}</p></div></body></html>`;
-  return new Response(page, {
+function esc(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Supabase's gateway serves text/html as text/plain, so the browser would show
+// raw markup. An SVG document is served as image/svg+xml and renders normally.
+function resultSvg(title: string, lines: string[], color: string): string {
+  const body = lines
+    .map((line, index) => `<tspan x="300" dy="${index === 0 ? 0 : 28}">${esc(line)}</tspan>`)
+    .join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid meet">
+<rect width="600" height="400" fill="#15171c"/>
+<text x="300" y="150" text-anchor="middle" fill="${color}" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="32" font-weight="600">${esc(title)}</text>
+<text x="300" y="205" text-anchor="middle" fill="#aab0b8" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="17">${body}</text>
+</svg>`;
+}
+
+function resultPage(status: number, title: string, lines: string[], error = false): Response {
+  return new Response(resultSvg(title, lines, error ? '#ff6b6b' : '#2ecc71'), {
     status,
-    headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-store' },
   });
+}
+
+function reasonLines(reason: string): string[] {
+  switch (reason) {
+    case 'expired':
+      return ['QR-код устарел.', 'Откройте вход на телевизоре заново.'];
+    case 'no_sid':
+      return ['Ссылка неполная.', 'Откройте вход на телевизоре заново.'];
+    case 'no_code':
+      return ['Shikimori не вернул код.', 'Попробуйте ещё раз.'];
+    case 'token_exchange_failed':
+      return ['Не удалось обменять код на токен.', 'Попробуйте ещё раз.'];
+    case 'not_configured':
+      return ['OAuth-приложение Shikimori', 'не настроено на сервере.'];
+    case 'access_denied':
+      return ['Доступ не разрешён.'];
+    default:
+      return ['Попробуйте войти ещё раз.'];
+  }
 }
 
 function svg(body: string): Response {
@@ -155,10 +189,10 @@ async function newSession(req: Request): Promise<Response> {
 }
 
 async function qr(sid: string, req: Request): Promise<Response> {
-  if (!sid) return html(400, 'Нет sid.');
+  if (!sid) return resultPage(400, 'Ошибка', reasonLines('no_sid'), true);
   const { data: row, error } = await db.from(TABLE).select('sid, qr_svg').eq('sid', sid).maybeSingle();
   if (error) throw error;
-  if (!row) return html(404, 'QR-код устарел, откройте вход заново.');
+  if (!row) return resultPage(404, 'QR-код устарел', reasonLines('expired'), true);
   if (row.qr_svg) return svg(row.qr_svg);
 
   const url = `${publicBase(req)}?action=authorize&sid=${encodeURIComponent(sid)}`;
@@ -174,11 +208,11 @@ async function qr(sid: string, req: Request): Promise<Response> {
 }
 
 async function authorize(sid: string, req: Request): Promise<Response> {
-  if (!sid) return html(400, 'Нет sid.');
+  if (!sid) return resultPage(200, 'Ошибка', reasonLines('no_sid'), true);
   const { data: row, error } = await db.from(TABLE).select('sid').eq('sid', sid).maybeSingle();
   if (error) throw error;
-  if (!row) return html(404, 'QR-код устарел. Откройте вход на телевизоре ещё раз.');
-  if (!configured()) return html(503, 'OAuth-приложение Shikimori не настроено на сервере.');
+  if (!row) return resultPage(200, 'QR-код устарел', reasonLines('expired'), true);
+  if (!configured()) return resultPage(200, 'Не настроено', reasonLines('not_configured'), true);
 
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
@@ -196,13 +230,13 @@ async function authorize(sid: string, req: Request): Promise<Response> {
 async function callback(code: string, state: string, errorParam: string, req: Request): Promise<Response> {
   const { data: row, error } = await db.from(TABLE).select('sid').eq('sid', state).maybeSingle();
   if (error) throw error;
-  if (!row) return html(404, 'Сессия не найдена или истекла. Откройте вход на телевизоре заново.');
+  if (!row) return resultPage(200, 'QR-код устарел', reasonLines('expired'), true);
 
   if (errorParam) {
     await db.from(TABLE).update({ status: 'error', error: errorParam }).eq('sid', state);
-    return html(400, '<span class="err">Доступ не разрешён.</span>');
+    return resultPage(200, 'Не удалось войти', reasonLines(errorParam), true);
   }
-  if (!code) return html(400, '<span class="err">Shikimori не вернул код.</span>');
+  if (!code) return resultPage(200, 'Не удалось войти', reasonLines('no_code'), true);
 
   try {
     const data = await oauth({
@@ -220,11 +254,15 @@ async function callback(code: string, state: string, errorParam: string, req: Re
       expires_in: data.expires_in || 0,
       error: null,
     }).eq('sid', state);
-    return html(200, '<span class="ok">Готово!</span><br>Вернитесь к телевизору — вход выполнится автоматически.');
+    return resultPage(200, 'Готово!', [
+      'Вернитесь к телевизору —',
+      'вход выполнится автоматически.',
+      'Это окно можно закрыть.',
+    ]);
   } catch (e) {
     console.error('token exchange failed', e);
     await db.from(TABLE).update({ status: 'error', error: 'token_exchange_failed' }).eq('sid', state);
-    return html(502, '<span class="err">Не удалось получить токен.</span> Проверьте client_id/secret и redirect_uri приложения.');
+    return resultPage(200, 'Не удалось войти', reasonLines('token_exchange_failed'), true);
   }
 }
 
