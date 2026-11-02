@@ -37,6 +37,14 @@ supabase secrets set \
 
 `CLIENT_ID`/`CLIENT_SECRET` — от OAuth-приложения Shikimori. `SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` Edge Function получает автоматически.
 
+Если страницы результата лежат не в этом репозитории GitHub Pages, укажите их базу:
+
+```bash
+supabase secrets set RESULT_BASE='https://<you>.github.io/lampa-shikimori'
+```
+
+`RESULT_BASE` — необязательный; по умолчанию `https://gtds-page.github.io/lampa-shikimori`. Телефон после входа редиректится на `success.html` / `error.html` из этой папки: Supabase отдаёт собственный HTML как `text/plain`, поэтому страницы результата должны быть статическими.
+
 Если позже сделаете свой домен, добавьте:
 
 ```bash
