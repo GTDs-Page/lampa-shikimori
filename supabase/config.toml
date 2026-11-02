@@ -1,0 +1,4 @@
+project_id = "vechwzycaplsjabenhuz"
+
+[functions.shikimori-auth]
+verify_jwt = false
