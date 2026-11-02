@@ -1,0 +1,17 @@
+{
+  "name": "Shikimori",
+  "version": "2.3.0",
+  "description": "Аниме из Shikimori: списки, каталог с фильтрами, поиск, просмотр с озвучками и синхронизация прогресса. Вход по QR-коду, управление пультом.",
+  "author": "GTD",
+  "license": "MIT",
+  "url": "https://gtds-page.github.io/lampa-shikimori/shikimori.js",
+  "icon": "https://gtds-page.github.io/lampa-shikimori/icon.png",
+  "screenshots": [],
+  "requirements": {
+    "lampa": ">=2.0"
+  },
+  "categories": [
+    "anime",
+    "video"
+  ]
+}
