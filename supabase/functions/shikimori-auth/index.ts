@@ -24,6 +24,7 @@ const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
 const CLIENT_ID = Deno.env.get('CLIENT_ID') || '';
 const CLIENT_SECRET = Deno.env.get('CLIENT_SECRET') || '';
 const SHIKI_BASE = (Deno.env.get('SHIKI_BASE') || 'https://shikimori.io').replace(/\/+$/, '');
+const RESULT_BASE = (Deno.env.get('RESULT_BASE') || 'https://gtds-page.github.io/lampa-shikimori').replace(/\/+$/, '');
 
 const db = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -84,6 +85,13 @@ function resultPage(status: number, title: string, lines: string[], error = fals
   return new Response(resultSvg(title, lines, error ? '#ff6b6b' : '#2ecc71'), {
     status,
     headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-store' },
+  });
+}
+
+function redirectTo(url: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: { Location: url, 'Cache-Control': 'no-store' },
   });
 }
 
@@ -208,11 +216,11 @@ async function qr(sid: string, req: Request): Promise<Response> {
 }
 
 async function authorize(sid: string, req: Request): Promise<Response> {
-  if (!sid) return resultPage(200, 'Ошибка', reasonLines('no_sid'), true);
+  if (!sid) return redirectTo(RESULT_BASE + '/error.html?reason=no_sid');
   const { data: row, error } = await db.from(TABLE).select('sid').eq('sid', sid).maybeSingle();
   if (error) throw error;
-  if (!row) return resultPage(200, 'QR-код устарел', reasonLines('expired'), true);
-  if (!configured()) return resultPage(200, 'Не настроено', reasonLines('not_configured'), true);
+  if (!row) return redirectTo(RESULT_BASE + '/error.html?reason=expired');
+  if (!configured()) return redirectTo(RESULT_BASE + '/error.html?reason=not_configured');
 
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
@@ -230,13 +238,13 @@ async function authorize(sid: string, req: Request): Promise<Response> {
 async function callback(code: string, state: string, errorParam: string, req: Request): Promise<Response> {
   const { data: row, error } = await db.from(TABLE).select('sid').eq('sid', state).maybeSingle();
   if (error) throw error;
-  if (!row) return resultPage(200, 'QR-код устарел', reasonLines('expired'), true);
+  if (!row) return redirectTo(RESULT_BASE + '/error.html?reason=expired');
 
   if (errorParam) {
     await db.from(TABLE).update({ status: 'error', error: errorParam }).eq('sid', state);
-    return resultPage(200, 'Не удалось войти', reasonLines(errorParam), true);
+    return redirectTo(RESULT_BASE + '/error.html?reason=' + encodeURIComponent(errorParam));
   }
-  if (!code) return resultPage(200, 'Не удалось войти', reasonLines('no_code'), true);
+  if (!code) return redirectTo(RESULT_BASE + '/error.html?reason=no_code');
 
   try {
     const data = await oauth({
@@ -254,15 +262,11 @@ async function callback(code: string, state: string, errorParam: string, req: Re
       expires_in: data.expires_in || 0,
       error: null,
     }).eq('sid', state);
-    return resultPage(200, 'Готово!', [
-      'Вернитесь к телевизору —',
-      'вход выполнится автоматически.',
-      'Это окно можно закрыть.',
-    ]);
+    return redirectTo(RESULT_BASE + '/success.html');
   } catch (e) {
     console.error('token exchange failed', e);
     await db.from(TABLE).update({ status: 'error', error: 'token_exchange_failed' }).eq('sid', state);
-    return resultPage(200, 'Не удалось войти', reasonLines('token_exchange_failed'), true);
+    return redirectTo(RESULT_BASE + '/error.html?reason=token_exchange_failed');
   }
 }
 
