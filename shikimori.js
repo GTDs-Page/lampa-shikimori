@@ -397,6 +397,11 @@ var ShikiApi = (function () {
                 return;
             }
 
+            var map = Lampa.Storage.get('shikimori_rates_map', {}) || {};
+            if (!rateId && map[animeId] && map[animeId].id) {
+                rateId = map[animeId].id;
+            }
+
             var newStatus = 'watching';
             if (totalEpisodes && episodeNumber >= totalEpisodes) {
                 newStatus = 'completed';
@@ -410,13 +415,22 @@ var ShikiApi = (function () {
             };
 
             function onUpdateSuccess(res) {
-                var map = Lampa.Storage.get('shikimori_rates_map', {}) || {};
-                map[animeId] = {
-                    id: (res && res.id) || rateId,
+                var currentMap = Lampa.Storage.get('shikimori_rates_map', {}) || {};
+                var savedId = (res && res.id) || rateId;
+                currentMap[animeId] = {
+                    id: savedId,
                     status: newStatus,
                     episodes: episodeNumber
                 };
-                Lampa.Storage.set('shikimori_rates_map', map);
+                Lampa.Storage.set('shikimori_rates_map', currentMap);
+                if (window.Lampa && Lampa.Listener) {
+                    Lampa.Listener.send('shikimori_progress_updated', {
+                        animeId: animeId,
+                        episode: episodeNumber,
+                        rateId: savedId,
+                        status: newStatus
+                    });
+                }
                 if (success) success(res);
             }
 
@@ -4176,6 +4190,8 @@ var ShikiUI = (function () {
             setupHeader();
             renderEpisodes();
 
+            syncWatchProgress(ep.episode);
+
             ShikiPlayer.play({
                 anime: anime,
                 season: activeSeason,
@@ -4190,22 +4206,21 @@ var ShikiUI = (function () {
         }
 
         function syncWatchProgress(epNum) {
-            if (!ShikiApi.isAuthorized() || !anime.id) return;
+            if (!ShikiApi.isAuthorized() || !anime || !anime.id) return;
 
             var newStatus = 'watching';
             if (anime.episodes && epNum >= anime.episodes) {
                 newStatus = 'completed';
             }
 
-            ShikiApi.updateWatchProgress(rateId, anime.id, epNum, newStatus, function (res) {
+            ShikiApi.updateProgress(anime.id, rateId, epNum, anime.episodes, function (res) {
                 if (res && res.id) rateId = res.id;
-                Lampa.Noty.show('Shikimori: отмечена серия ' + epNum + (newStatus === 'completed' ? ' (Просмотрено)' : ''), { time: 3000 });
-                ShikiApi.setUserRate(anime.id, {
-                    id: rateId,
-                    status: newStatus,
-                    episodes: epNum
-                });
+                if (window.Lampa && Lampa.Noty) {
+                    Lampa.Noty.show('Shikimori: отмечена серия ' + epNum + (newStatus === 'completed' ? ' (Просмотрено)' : ' (Смотрю)'), { time: 3000 });
+                }
                 setupHeader();
+            }, function (err) {
+                console.warn('Shikimori syncWatchProgress error:', err);
             });
         }
     }
